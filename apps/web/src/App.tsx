@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent } from 'react'
 import type { Shape, Tool } from './types'
 import { useCollaborativeBoard } from './collab'
@@ -22,13 +22,12 @@ function uid() { return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}
 
 export function App() {
   const [tool, setTool] = useState<Tool>('select')
-  const { shapes, connected, people, replace, undo, redo, moveCursor } = useCollaborativeBoard(initialShapes)
+  const { shapes, connected, people, cursors, add, update, undo, redo, beginChange, finishChange, moveCursor } = useCollaborativeBoard(initialShapes)
   const [selected, setSelected] = useState<string | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   const drag = useRef<{ id: string; x: number; y: number } | null>(null)
   const stroke = useRef<number[]>([])
-
-  const commit = (next: Shape[]) => replace(next)
+  const strokeId = useRef<string | null>(null)
 
   const canvasPoint = (event: PointerEvent<HTMLDivElement>) => {
     const box = event.currentTarget.getBoundingClientRect()
@@ -37,14 +36,20 @@ export function App() {
 
   const addAt = (event: PointerEvent<HTMLDivElement>) => {
     const { x, y } = canvasPoint(event)
-    if (tool === 'note') commit([...shapes, { id: uid(), type: 'note', x, y, width: 160, height: 108, color: palette[shapes.length % palette.length], text: 'New idea' }])
-    if (tool === 'shape') commit([...shapes, { id: uid(), type: 'rectangle', x, y, width: 150, height: 86, color: '#6C5CE7', text: 'New shape' }])
-    if (tool === 'text') commit([...shapes, { id: uid(), type: 'text', x, y, color: '#283548', text: 'Type something' }])
+    if (tool === 'note') add({ id: uid(), type: 'note', x, y, width: 160, height: 108, color: palette[shapes.length % palette.length], text: 'New idea' })
+    if (tool === 'shape') add({ id: uid(), type: 'rectangle', x, y, width: 150, height: 86, color: '#6C5CE7', text: 'New shape' })
+    if (tool === 'text') add({ id: uid(), type: 'text', x, y, color: '#283548', text: 'Type something' })
   }
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     const point = canvasPoint(event)
-    if (tool === 'pen') { stroke.current = [point.x, point.y]; return }
+    if (tool === 'pen') {
+      beginChange()
+      stroke.current = [point.x, point.y]
+      strokeId.current = uid()
+      add({ id: strokeId.current, type: 'path', x: 0, y: 0, color: '#283548', points: stroke.current })
+      return
+    }
     if (tool !== 'select') { addAt(event); return }
     setSelected(null)
   }
@@ -53,29 +58,29 @@ export function App() {
     const point = canvasPoint(event)
     setCursor(point)
     moveCursor(point)
-    if (tool === 'pen' && stroke.current.length) stroke.current.push(point.x, point.y)
+    if (tool === 'pen' && strokeId.current) {
+      stroke.current.push(point.x, point.y)
+      update(strokeId.current, { points: [...stroke.current] })
+    }
     if (drag.current) {
       const { id, x, y } = drag.current
-      replace(shapes.map(shape => shape.id === id ? { ...shape, x: point.x - x, y: point.y - y } : shape))
+      update(id, { x: point.x - x, y: point.y - y })
     }
   }
 
   const onPointerUp = () => {
-    if (tool === 'pen' && stroke.current.length > 3) commit([...shapes, { id: uid(), type: 'path', x: 0, y: 0, color: '#283548', points: stroke.current }])
+    if (tool === 'pen' && strokeId.current) finishChange()
     stroke.current = []
+    strokeId.current = null
     drag.current = null
   }
-
-  const presence = useMemo(() => [
-    { name: 'Maya', color: '#F75C5C' }, { name: 'Noah', color: '#6C5CE7' }, { name: 'Ari', color: '#00A88F' }, ...people
-  ], [people])
 
   return <main className="app-shell">
     <header className="topbar">
       <div className="brand"><span className="brand-mark">✦</span> LiveCanvas</div>
       <div className="board-name">Project Nebula <span className={connected ? 'saved-dot' : 'saved-dot offline'} /> <span className="saved-label">{connected ? 'Live' : 'Connecting'}</span></div>
       <div className="top-actions">
-        <div className="avatars" aria-label="3 collaborators">{presence.map(person => <span key={person.name} title={person.name} style={{ background: person.color }}>{person.name[0]}</span>)}</div>
+        <div className="avatars" aria-label={`${people.length} collaborators`}>{people.slice(0, 3).map(person => <span key={person.name} title={person.name} style={{ background: person.color }}>{person.name[0]}</span>)}</div>
         <button className="share">Share</button>
       </div>
     </header>
@@ -99,8 +104,7 @@ export function App() {
             drag.current = { id: shape.id, x: point.x - shape.x, y: point.y - shape.y }
             setSelected(shape.id)
           }} />)}
-          <RemoteCursor name="Maya" color="#F75C5C" x={276} y={312} />
-          <RemoteCursor name="Noah" color="#6C5CE7" x={578} y={156} />
+          {cursors.map(cursor => <RemoteCursor key={cursor.name} {...cursor} />)}
           {cursor && <span className="local-cursor" style={{ left: cursor.x, top: cursor.y }} />}
         </div>
       </div>
@@ -109,7 +113,7 @@ export function App() {
     </section>
 
     <aside className="sidebar">
-      <section><h2>Collaborators</h2>{presence.map((person, index) => <div className="person" key={person.name}><span className="person-avatar" style={{ background: person.color }}>{person.name[0]}</span><div><strong>{person.name}</strong><small>{index === 0 ? 'Editing now' : 'Viewing board'}</small></div><span className="online" /></div>)}</section>
+      <section><h2>Collaborators</h2>{people.length ? people.map(person => <div className="person" key={person.name}><span className="person-avatar" style={{ background: person.color }}>{person.name[0]}</span><div><strong>{person.name}</strong><small>Editing now</small></div><span className="online" /></div>) : <p className="empty-presence">Open this board in another window to collaborate.</p>}</section>
       <section className="layers"><div className="section-heading"><h2>Layers</h2><button>＋</button></div>{shapes.filter(shape => shape.type !== 'path').slice().reverse().map(shape => <button key={shape.id} className={selected === shape.id ? 'layer selected-layer' : 'layer'} onClick={() => setSelected(shape.id)}><span className={`layer-icon ${shape.type}`} />{shape.text?.split('\n')[0] || 'Drawing'}</button>)}</section>
     </aside>
   </main>
