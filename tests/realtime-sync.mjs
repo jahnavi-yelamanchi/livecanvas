@@ -4,11 +4,12 @@ import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
 
 const endpoint = process.env.LIVECANVAS_WS ?? 'ws://localhost:3001/ws'
+const secondEndpoint = process.env.LIVECANVAS_WS_SECOND ?? endpoint
 const room = `sync-test-${Date.now()}`
 const first = new Y.Doc()
 const second = new Y.Doc()
 const one = new WebsocketProvider(endpoint, room, first, { WebSocketPolyfill: WebSocket })
-const two = new WebsocketProvider(endpoint, room, second, { WebSocketPolyfill: WebSocket })
+const two = new WebsocketProvider(secondEndpoint, room, second, { WebSocketPolyfill: WebSocket })
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))
 
 await wait(300)

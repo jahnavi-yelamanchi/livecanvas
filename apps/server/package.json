@@ -12,6 +12,7 @@
   "dependencies": {
     "lib0": "latest",
     "pg": "latest",
+    "redis": "latest",
     "ws": "latest",
     "y-protocols": "latest",
     "yjs": "latest"

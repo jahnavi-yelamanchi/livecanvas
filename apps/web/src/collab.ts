@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import * as Y from 'yjs'
+import { IndexeddbPersistence } from 'y-indexeddb'
 import { WebsocketProvider } from 'y-websocket'
 import type { Shape } from './types'
 
@@ -15,7 +16,8 @@ export function useCollaborativeBoard(seed: Shape[]) {
   if (!session.current) session.current = createSession()
 
   useEffect(() => {
-    const { doc, provider, shapes: board, undoManager, origin } = session.current!
+    const { doc, provider, persistence, shapes: board, undoManager, origin } = session.current!
+    let seeded = false
     const sync = () => setShapes(Array.from(board.values()))
     const presence = () => {
       const states = Array.from(provider.awareness.getStates().entries()).filter(([id]) => id !== doc.clientID)
@@ -25,12 +27,16 @@ export function useCollaborativeBoard(seed: Shape[]) {
     board.observe(sync)
     provider.awareness.on('change', presence)
     provider.on('status', ({ status }: { status: string }) => setConnected(status === 'connected'))
-    provider.on('sync', (synced: boolean) => {
-      if (synced && board.size === 0) doc.transact(() => seed.forEach(shape => board.set(shape.id, shape)), origin)
+    const seedBoard = () => {
+      if (seeded || !provider.synced || !persistence.synced) return
+      seeded = true
+      if (board.size === 0) doc.transact(() => seed.forEach(shape => board.set(shape.id, shape)), origin)
       sync()
-    })
+    }
+    provider.on('sync', seedBoard)
+    persistence.on('synced', seedBoard)
     provider.awareness.setLocalStateField('user', { name: `Guest ${doc.clientID.toString(36).slice(-3)}`, color: '#6C5CE7' })
-    return () => { board.unobserve(sync); provider.awareness.off('change', presence); undoManager.destroy(); provider.destroy(); doc.destroy() }
+    return () => { board.unobserve(sync); provider.awareness.off('change', presence); persistence.off('synced', seedBoard); undoManager.destroy(); provider.destroy(); persistence.destroy(); doc.destroy() }
   }, [seed])
 
   return {
@@ -58,7 +64,8 @@ export function useCollaborativeBoard(seed: Shape[]) {
 function createSession() {
   const doc = new Y.Doc()
   const shapes = doc.getMap<Shape>('shapeMap')
+  const persistence = new IndexeddbPersistence('livecanvas-project-nebula', doc)
   const provider = new WebsocketProvider(endpoint, 'project-nebula', doc)
   const origin = {}
-  return { doc, shapes, provider, origin, undoManager: new Y.UndoManager(shapes, { trackedOrigins: new Set([origin]) }) }
+  return { doc, shapes, provider, persistence, origin, undoManager: new Y.UndoManager(shapes, { trackedOrigins: new Set([origin]) }) }
 }
