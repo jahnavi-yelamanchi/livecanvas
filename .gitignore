@@ -1,0 +1,6 @@
+node_modules
+dist
+*.tsbuildinfo
+.env
+demo/*.mp4
+demo/*.webm

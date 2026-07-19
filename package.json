@@ -1,0 +1,14 @@
+{
+  "name": "livecanvas",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "npm run dev -w @livecanvas/web",
+    "dev:server": "npm run dev -w @livecanvas/server",
+    "build": "npm run build -w @livecanvas/web && npm run build -w @livecanvas/server",
+    "start": "npm run start -w @livecanvas/server",
+    "check": "npm run check -w @livecanvas/web && npm run check -w @livecanvas/server"
+  }
+}
