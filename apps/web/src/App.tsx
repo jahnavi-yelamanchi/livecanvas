@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent } from 'react'
 import type { Shape, Tool } from './types'
 import { useCollaborativeBoard } from './collab'
@@ -22,12 +22,21 @@ function uid() { return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}
 
 export function App() {
   const [tool, setTool] = useState<Tool>('select')
-  const { shapes, connected, people, cursors, add, update, undo, redo, beginChange, finishChange, moveCursor } = useCollaborativeBoard(initialShapes)
+  const { shapes, connected, offlineReady, people, cursors, add, update, undo, redo, beginChange, finishChange, moveCursor } = useCollaborativeBoard(initialShapes)
+  const [metricsOpen, setMetricsOpen] = useState(false)
+  const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   const drag = useRef<{ id: string; x: number; y: number } | null>(null)
   const stroke = useRef<number[]>([])
   const strokeId = useRef<string | null>(null)
+
+  useEffect(() => {
+    const refresh = () => fetch('/healthz').then(response => response.json()).then(setMetrics).catch(() => setMetrics(null))
+    refresh()
+    const interval = window.setInterval(refresh, 2000)
+    return () => window.clearInterval(interval)
+  }, [])
 
   const canvasPoint = (event: PointerEvent<HTMLDivElement>) => {
     const box = event.currentTarget.getBoundingClientRect()
@@ -81,6 +90,7 @@ export function App() {
       <div className="board-name">Project Nebula <span className={connected ? 'saved-dot' : 'saved-dot offline'} /> <span className="saved-label">{connected ? 'Live' : 'Connecting'}</span></div>
       <div className="top-actions">
         <div className="avatars" aria-label={`${people.length} collaborators`}>{people.slice(0, 3).map(person => <span key={person.name} title={person.name} style={{ background: person.color }}>{person.name[0]}</span>)}</div>
+        <div className="metrics-wrap"><button className="metrics-toggle" onClick={() => setMetricsOpen(open => !open)} aria-expanded={metricsOpen}>Metrics</button>{metricsOpen && <MetricsPanel metrics={metrics} offlineReady={offlineReady} />}</div>
         <button className="share">Share</button>
       </div>
     </header>
@@ -117,6 +127,22 @@ export function App() {
       <section className="layers"><div className="section-heading"><h2>Layers</h2><button>＋</button></div>{shapes.filter(shape => shape.type !== 'path').slice().reverse().map(shape => <button key={shape.id} className={selected === shape.id ? 'layer selected-layer' : 'layer'} onClick={() => setSelected(shape.id)}><span className={`layer-icon ${shape.type}`} />{shape.text?.split('\n')[0] || 'Drawing'}</button>)}</section>
     </aside>
   </main>
+}
+
+type Metrics = { instanceId: string; rooms: number; redis: boolean; metrics: { connections: number; updates: number; redisUpdates: number; snapshots: number; snapshotMs: number; lastRedisLatencyMs: number } }
+
+function MetricsPanel({ metrics, offlineReady }: { metrics: Metrics | null; offlineReady: boolean }) {
+  return <section className="metrics-panel" aria-label="System metrics">
+    <div className="metrics-title"><span>System telemetry</span><i className={metrics?.redis ? 'healthy' : ''} /></div>
+    <div className="metric-row"><span>Redis relay</span><strong>{metrics?.redis ? 'Connected' : 'Waiting'}</strong></div>
+    <div className="metric-row"><span>Node</span><strong>{metrics ? metrics.instanceId.slice(0, 8) : '—'}</strong></div>
+    <div className="metric-row"><span>Connections</span><strong>{metrics?.metrics.connections ?? 0}</strong></div>
+    <div className="metric-row"><span>Yjs updates</span><strong>{metrics?.metrics.updates ?? 0}</strong></div>
+    <div className="metric-row"><span>Redis latency</span><strong>{metrics?.metrics.lastRedisLatencyMs ? `${metrics.metrics.lastRedisLatencyMs} ms` : 'local'}</strong></div>
+    <div className="metric-row"><span>Snapshot write</span><strong>{metrics?.metrics.snapshotMs ? `${metrics.metrics.snapshotMs} ms` : '—'}</strong></div>
+    <div className="metric-row"><span>Offline cache</span><strong>{offlineReady ? 'IndexedDB ready' : 'Loading'}</strong></div>
+    <p>Run two nodes with <code>--scale livecanvas=2</code> to watch Redis relay updates between replicas.</p>
+  </section>
 }
 
 function CanvasShape({ shape, selected, onPointerDown }: { shape: Shape; selected: boolean; onPointerDown: (event: PointerEvent<HTMLDivElement>) => void }) {

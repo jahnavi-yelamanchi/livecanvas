@@ -10,6 +10,7 @@ export function useCollaborativeBoard(seed: Shape[]) {
   const session = useRef<ReturnType<typeof createSession> | null>(null)
   const [shapes, setShapes] = useState(seed)
   const [connected, setConnected] = useState(false)
+  const [offlineReady, setOfflineReady] = useState(false)
   const [people, setPeople] = useState<{ name: string; color: string }[]>([])
   const [cursors, setCursors] = useState<{ name: string; color: string; x: number; y: number }[]>([])
 
@@ -28,6 +29,7 @@ export function useCollaborativeBoard(seed: Shape[]) {
     provider.awareness.on('change', presence)
     provider.on('status', ({ status }: { status: string }) => setConnected(status === 'connected'))
     const seedBoard = () => {
+      setOfflineReady(true)
       if (seeded || !provider.synced || !persistence.synced) return
       seeded = true
       if (board.size === 0) doc.transact(() => seed.forEach(shape => board.set(shape.id, shape)), origin)
@@ -42,6 +44,7 @@ export function useCollaborativeBoard(seed: Shape[]) {
   return {
     shapes,
     connected,
+    offlineReady,
     people,
     cursors,
     add(shape: Shape) {
