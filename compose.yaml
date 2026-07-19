@@ -1,0 +1,26 @@
+services:
+  livecanvas:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgres://livecanvas:livecanvas@postgres:5432/livecanvas
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: livecanvas
+      POSTGRES_USER: livecanvas
+      POSTGRES_PASSWORD: livecanvas
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U livecanvas -d livecanvas"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - livecanvas-data:/var/lib/postgresql/data
+
+volumes:
+  livecanvas-data:
