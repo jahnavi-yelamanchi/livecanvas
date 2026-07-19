@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent } from 'react'
 import type { Shape, Tool } from './types'
+import { useCollaborativeBoard } from './collab'
 
 const palette = ['#A8D8FF', '#FFBF9D', '#B8F1D3', '#C7B8FF']
 const initialShapes: Shape[] = [
@@ -21,25 +22,13 @@ function uid() { return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}
 
 export function App() {
   const [tool, setTool] = useState<Tool>('select')
-  const [shapes, setShapes] = useState<Shape[]>(initialShapes)
+  const { shapes, connected, people, replace, undo, redo, moveCursor } = useCollaborativeBoard(initialShapes)
   const [selected, setSelected] = useState<string | null>(null)
-  const [history, setHistory] = useState<Shape[][]>([initialShapes])
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   const drag = useRef<{ id: string; x: number; y: number } | null>(null)
   const stroke = useRef<number[]>([])
 
-  const commit = useCallback((next: Shape[]) => {
-    setShapes(next)
-    setHistory(previous => [...previous.slice(-19), next])
-  }, [])
-
-  const undo = () => {
-    if (history.length < 2) return
-    const next = history.slice(0, -1)
-    setHistory(next)
-    setShapes(next.at(-1)!)
-    setSelected(null)
-  }
+  const commit = (next: Shape[]) => replace(next)
 
   const canvasPoint = (event: PointerEvent<HTMLDivElement>) => {
     const box = event.currentTarget.getBoundingClientRect()
@@ -63,28 +52,28 @@ export function App() {
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const point = canvasPoint(event)
     setCursor(point)
+    moveCursor(point)
     if (tool === 'pen' && stroke.current.length) stroke.current.push(point.x, point.y)
     if (drag.current) {
       const { id, x, y } = drag.current
-      setShapes(current => current.map(shape => shape.id === id ? { ...shape, x: point.x - x, y: point.y - y } : shape))
+      replace(shapes.map(shape => shape.id === id ? { ...shape, x: point.x - x, y: point.y - y } : shape))
     }
   }
 
   const onPointerUp = () => {
     if (tool === 'pen' && stroke.current.length > 3) commit([...shapes, { id: uid(), type: 'path', x: 0, y: 0, color: '#283548', points: stroke.current }])
     stroke.current = []
-    if (drag.current) { setShapes(current => { setHistory(previous => [...previous.slice(-19), current]); return current }) }
     drag.current = null
   }
 
   const presence = useMemo(() => [
-    { name: 'Maya', color: '#F75C5C' }, { name: 'Noah', color: '#6C5CE7' }, { name: 'Ari', color: '#00A88F' }
-  ], [])
+    { name: 'Maya', color: '#F75C5C' }, { name: 'Noah', color: '#6C5CE7' }, { name: 'Ari', color: '#00A88F' }, ...people
+  ], [people])
 
   return <main className="app-shell">
     <header className="topbar">
       <div className="brand"><span className="brand-mark">✦</span> LiveCanvas</div>
-      <div className="board-name">Project Nebula <span className="saved-dot" /> <span className="saved-label">Live</span></div>
+      <div className="board-name">Project Nebula <span className={connected ? 'saved-dot' : 'saved-dot offline'} /> <span className="saved-label">{connected ? 'Live' : 'Connecting'}</span></div>
       <div className="top-actions">
         <div className="avatars" aria-label="3 collaborators">{presence.map(person => <span key={person.name} title={person.name} style={{ background: person.color }}>{person.name[0]}</span>)}</div>
         <button className="share">Share</button>
@@ -94,7 +83,8 @@ export function App() {
     <aside className="tools" aria-label="Canvas tools">
       {tools.map(item => <button key={item.id} className={tool === item.id ? 'tool active' : 'tool'} onClick={() => setTool(item.id)} title={item.label}>{item.icon}</button>)}
       <div className="tool-divider" />
-      <button className="tool" onClick={undo} title="Undo" disabled={history.length < 2}>↶</button>
+      <button className="tool" onClick={() => { undo(); setSelected(null) }} title="Undo">↶</button>
+      <button className="tool" onClick={redo} title="Redo">↷</button>
     </aside>
 
     <section className="workspace">
@@ -114,7 +104,7 @@ export function App() {
           {cursor && <span className="local-cursor" style={{ left: cursor.x, top: cursor.y }} />}
         </div>
       </div>
-      <div className="save-status"><span>✓</span> All changes saved</div>
+      <div className="save-status"><span>✓</span> {connected ? 'All changes synced' : 'Working offline'}</div>
       <div className="zoom"><button>−</button><span>100%</span><button>+</button></div>
     </section>
 
